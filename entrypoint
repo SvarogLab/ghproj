@@ -1,0 +1,40 @@
+#!/bin/sh
+# Runs ghproj once, as `ghproj add` unless given other arguments. ghproj reads its token from
+# GITHUB_TOKEN only, and a GitHub App's installation token lives an hour, so with an app it is
+# minted here on every run. See README.md for the settings.
+set -eu
+
+log() { echo "entrypoint: $*" >&2; }
+die() { log "$*"; exit 2; }
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+app_jwt() {
+  now=$(date +%s)
+  # Backdated a minute against clock drift; GitHub refuses an expiry more than ten minutes out.
+  header=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+  payload=$(printf '{"iat":%s,"exp":%s,"iss":"%s"}' $((now - 60)) $((now + 540)) "$GITHUB_APP_ID" | b64url)
+  signature=$(printf '%s.%s' "$header" "$payload" |
+    openssl dgst -sha256 -sign "$GITHUB_APP_PRIVATE_KEY_FILE" -binary | b64url)
+  printf '%s.%s.%s' "$header" "$payload" "$signature"
+}
+
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  [ -n "${GITHUB_APP_ID:-}" ] && [ -n "${GITHUB_APP_INSTALLATION_ID:-}" ] ||
+    die "set GITHUB_TOKEN, or GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and GITHUB_APP_PRIVATE_KEY_FILE"
+  [ -r "${GITHUB_APP_PRIVATE_KEY_FILE:-}" ] ||
+    die "GITHUB_APP_PRIVATE_KEY_FILE '${GITHUB_APP_PRIVATE_KEY_FILE:-}' is not a readable file"
+  if ! response=$(curl -fsS -X POST \
+    -H "Authorization: Bearer $(app_jwt)" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/app/installations/$GITHUB_APP_INSTALLATION_ID/access_tokens") ||
+    ! GITHUB_TOKEN=$(printf '%s' "$response" | jq -er .token); then
+    log "GitHub gave no installation token: check that GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID" \
+      "and the key in GITHUB_APP_PRIVATE_KEY_FILE belong to one app, installed on the organisation"
+    exit 1
+  fi
+  export GITHUB_TOKEN
+fi
+
+[ "$#" -gt 0 ] || set -- add
+exec ghproj "$@"

@@ -1,0 +1,4 @@
+ignored:
+  # Alpine drops a package's old revisions from its mirrors, so a pinned revision stops building
+  # once a fix lands; the base image tag is what Renovate moves.
+  - DL3018

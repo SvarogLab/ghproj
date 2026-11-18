@@ -1,0 +1,94 @@
+name: CI
+
+# A merged `chore: release vX.Y.Z` commit is tagged, its image published and its GitHub Release
+# created in one run: a tag pushed with GITHUB_TOKEN starts no workflow of its own.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: shellcheck
+        run: shellcheck entrypoint tests/*.sh
+
+      - uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+
+      # The image runs the entrypoint with busybox sh; dash and bash catch what busybox forgives.
+      - name: Run tests/entrypoint.sh
+        run: |
+          sudo apt-get install -y --no-install-recommends busybox
+          for shell in dash bash "busybox sh"; do
+            echo "::group::$shell"
+            tests/entrypoint.sh "$shell"
+            echo "::endgroup::"
+          done
+
+  tag:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: SvarogLab/.github/.github/workflows/tag-release.yml@v3
+    permissions:
+      contents: write
+
+  # A pull request builds the image without pushing it, so every change to the Dockerfile is built
+  # before it merges.
+  image:
+    needs: [test, tag]
+    if: ${{ !cancelled() && needs.test.result == 'success' && (github.event_name == 'pull_request' || needs.tag.outputs.tag != '') }}
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE: ${{ needs.tag.outputs.tag != '' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: env.RELEASE == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # GHCR paths are lowercase; the organisation's name may not be.
+      - name: Resolve the image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.RELEASE == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    needs: [tag, image]
+    if: needs.tag.outputs.tag != ''
+    uses: SvarogLab/.github/.github/workflows/release.yml@v3
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
