@@ -1,20 +1,17 @@
 # ghproj
 
 A container image of [ghproj](https://github.com/suzuki-shunsuke/ghproj), which adds GitHub issues
-and pull requests to a GitHub Project. The image runs ghproj once and exits, so a scheduler such as
-a Kubernetes CronJob decides how often it runs.
-
-ghproj reads its token from `GITHUB_TOKEN` only. A GitHub App's installation token lives an hour,
-so the image's entrypoint mints a fresh one from the app's private key on every run; a static token
-can be given instead.
+and pull requests to a GitHub Project. The image runs `ghproj add` once and exits, so a scheduler
+such as a Kubernetes CronJob decides how often it runs.
 
 ## Image
 
-`ghcr.io/svaroglab/ghproj:<version>`, for `linux/amd64` and `linux/arm64`. The build checks
-the ghproj release's checksums against their Sigstore signature before it unpacks the binary.
+`ghcr.io/svaroglab/ghproj:<version>`, for `linux/amd64` and `linux/arm64`: the ghproj binary
+from its own release on `distroless/static`. The build checks the release's checksums against their
+Sigstore signature, bound to the ghproj repository and tag, before it unpacks the binary.
 
 The container runs as UID 65532 and writes nothing to disk, so it works with a read-only root
-filesystem.
+filesystem. Arguments replace the default `add`, as in `ghproj <arguments>`.
 
 ## Settings
 
@@ -22,15 +19,7 @@ filesystem.
 | --- | --- |
 | `GHPROJ_CONFIG` | Path to the ghproj configuration file. |
 | `GHPROJ_CONFIG_TEXT` | The configuration itself, instead of a file. |
-| `GITHUB_APP_ID` | The GitHub App's ID. |
-| `GITHUB_APP_INSTALLATION_ID` | The ID of the app's installation on the organisation that owns the project. |
-| `GITHUB_APP_PRIVATE_KEY_FILE` | Path to the app's private key, PEM. |
-| `GITHUB_TOKEN` | A token to use as is; when set, the three app settings are not read. |
-
-Arguments, if any, replace the default `add`, as in `ghproj <arguments>`.
-
-The entrypoint exits 2 when the settings are incomplete, 1 when GitHub gives no installation token,
-and with ghproj's own status otherwise.
+| `GITHUB_TOKEN` | The token ghproj reaches GitHub with; see [The token](#the-token). |
 
 ## Setting up
 
@@ -45,24 +34,20 @@ gh project list --owner example-org --format json --jq '.projects[] | [.number, 
 In the project's **Workflows**, the built-in *Item added to project*, *Item closed* and *Pull
 request merged* set the status of what ghproj adds and keep it current; ghproj only adds items.
 
-### The GitHub App
+### The token
 
-Fine-grained personal access tokens cannot reach GitHub Projects, so an organisation's project is
-reached through an app.
+A fine-grained personal access token, created under **Settings → Developer settings → Personal
+access tokens → Fine-grained tokens**:
 
-1. In the organisation's settings, under **Developer settings → GitHub Apps**, create an app with
-   the webhook turned off and these permissions:
-   - Repository: **Metadata** read-only, **Issues** read-only, **Pull requests** read-only.
-   - Organisation: **Projects** read and write.
-2. Generate a private key and keep the downloaded PEM file.
-3. Install the app on the organisation, on all repositories or on the ones to track. The
-   installation ID is the number at the end of the installation's settings URL, or:
+- **Resource owner**: the organisation that owns the project.
+- **Repository access**: all repositories, or the ones to track.
+- **Repository permissions**: **Issues** and **Pull requests** read-only.
+- **Organization permissions**: **Projects** read and write.
 
-   ```sh
-   gh api /orgs/example-org/installation --jq .id
-   ```
-
-   That call needs a token the app has not issued, such as an organisation owner's.
+An organisation that requires approval of fine-grained tokens has to approve it before it works.
+Items ghproj adds are recorded as added by the token's owner. A project owned by a user rather than
+an organisation is out of a fine-grained token's reach and needs a classic token with the `project`
+and `repo` scopes.
 
 ### The configuration
 
@@ -84,13 +69,10 @@ Every field and the `expr` filter are described in
 
 ## Running it in Kubernetes
 
-The app's credentials go into a Secret, the configuration into a ConfigMap:
+The token goes into a Secret, the configuration into a ConfigMap:
 
 ```sh
-kubectl create secret generic ghproj-app \
-  --from-literal=app-id=123456 \
-  --from-literal=installation-id=7890123 \
-  --from-file=private-key.pem=./example-app.private-key.pem
+kubectl create secret generic ghproj-token --from-file=token=./token
 kubectl create configmap ghproj-config --from-file=ghproj.yaml
 ```
 
@@ -123,14 +105,9 @@ spec:
               env:
                 - name: GHPROJ_CONFIG
                   value: /config/ghproj.yaml
-                - name: GITHUB_APP_PRIVATE_KEY_FILE
-                  value: /app/private-key.pem
-                - name: GITHUB_APP_ID
+                - name: GITHUB_TOKEN
                   valueFrom:
-                    secretKeyRef: {name: ghproj-app, key: app-id}
-                - name: GITHUB_APP_INSTALLATION_ID
-                  valueFrom:
-                    secretKeyRef: {name: ghproj-app, key: installation-id}
+                    secretKeyRef: {name: ghproj-token, key: token}
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -141,38 +118,25 @@ spec:
                 limits: {memory: 128Mi}
               volumeMounts:
                 - {name: config, mountPath: /config, readOnly: true}
-                - {name: app, mountPath: /app, readOnly: true}
           volumes:
             - name: config
               configMap:
                 name: ghproj-config
-            - name: app
-              secret:
-                secretName: ghproj-app
-                items:
-                  - {key: private-key.pem, path: private-key.pem}
 ```
 
 Each run logs how many items its search found and exits 0 when it adds them all, or finds none.
-With an app, a run also mints one installation token.
 
 ## Development
 
-`tests/entrypoint.sh` runs the entrypoint against stand-ins for ghproj and curl; openssl and jq are
-the real ones. CI runs it under dash, bash and busybox sh:
-
-```sh
-tests/entrypoint.sh "busybox sh"
-```
-
-The code style, and the checks that hold it, are in [docs/CODESTYLE.md](docs/CODESTYLE.md).
+CI lints the Dockerfile and builds the image on every pull request. The code style, and the checks
+that hold it, are in [docs/CODESTYLE.md](docs/CODESTYLE.md).
 
 A release starts with the **Release PR** workflow, run by hand from the Actions tab. It opens a
 pull request with the next version and the regenerated `CHANGELOG.md`; merging it tags `vX.Y.Z`,
 publishes the image `X.Y.Z` and creates the GitHub Release, all in that merge's CI run. The tag is
 pushed first: if the image or the release then fails, **Re-run failed jobs** finishes them for the
-same tag, which a second tag of the same version could not. Renovate
-moves the ghproj version in the `Dockerfile` and the Alpine base.
+same tag, which a second tag of the same version could not. Renovate moves the ghproj version and
+both base images in the `Dockerfile`.
 
 ## License
 

@@ -23,9 +23,8 @@ RUN cosign verify-blob \
  && sha256sum -c archive.sha256 \
  && tar -xzf "ghproj_linux_${TARGETARCH}.tar.gz" ghproj
 
-FROM alpine:3.24
-RUN apk add --no-cache curl jq openssl
-COPY --from=fetch /fetch/ghproj /usr/local/bin/ghproj
-COPY entrypoint /usr/local/bin/entrypoint
-USER 65532:65532
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+# ghproj is a static Go binary; distroless/static carries the CA bundle it needs and nothing else.
+FROM gcr.io/distroless/static-debian13:nonroot
+COPY --from=fetch /fetch/ghproj /ghproj
+ENTRYPOINT ["/ghproj"]
+CMD ["add"]

@@ -11,32 +11,18 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-
-      - name: shellcheck
-        run: shellcheck entrypoint tests/*.sh
-
       - uses: hadolint/hadolint-action@v3.5.0
         with:
           dockerfile: Dockerfile
 
-      # The image runs the entrypoint with busybox sh; dash and bash catch what busybox forgives.
-      - name: Run tests/entrypoint.sh
-        run: |
-          sudo apt-get install -y --no-install-recommends busybox
-          for shell in dash bash "busybox sh"; do
-            echo "::group::$shell"
-            tests/entrypoint.sh "$shell"
-            echo "::endgroup::"
-          done
-
   tag:
-    needs: test
+    needs: lint
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: SvarogLab/.github/.github/workflows/tag-release.yml@v3
     permissions:
@@ -45,8 +31,8 @@ jobs:
   # A pull request builds the image without pushing it, so every change to the Dockerfile is built
   # before it merges. Each platform builds on a runner of its own architecture.
   image:
-    needs: [test, tag]
-    if: ${{ !cancelled() && needs.test.result == 'success' && (github.event_name == 'pull_request' || needs.tag.outputs.tag != '') }}
+    needs: [lint, tag]
+    if: ${{ !cancelled() && needs.lint.result == 'success' && (github.event_name == 'pull_request' || needs.tag.outputs.tag != '') }}
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
