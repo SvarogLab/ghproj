@@ -52,12 +52,22 @@ and `repo` scopes.
 ### The configuration
 
 A query with `-project:` leaves out what is already on the board, so each run fetches only what is
-new. Use `is:issue` or `is:pr` to take one kind only.
+new. With a fine-grained token, GitHub's search finds nothing unless the query names `is:issue` or
+`is:pr`, and says so only in its REST API; GraphQL, which ghproj uses, returns no items and no
+error. Issues and pull requests therefore take an entry each:
 
 ```yaml
 entries:
   - project_id: PVT_xxxxxxxxxxxxxxxx
     query: |
+      is:issue
+      is:open
+      archived:false
+      owner:example-org
+      -project:example-org/1
+  - project_id: PVT_xxxxxxxxxxxxxxxx
+    query: |
+      is:pr
       is:open
       archived:false
       owner:example-org
