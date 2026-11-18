@@ -1,0 +1,39 @@
+name: Release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as v1.0.1; empty takes the ghproj version the Dockerfile installs.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  # A release carries the version of the ghproj it ships.
+  version:
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.dockerfile.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: dockerfile
+        run: |
+          version=$(sed -n 's/^ARG GHPROJ_VERSION=//p' Dockerfile)
+          [ -n "$version" ] || { echo "::error::no ARG GHPROJ_VERSION in the Dockerfile"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  release-pr:
+    needs: version
+    uses: SvarogLab/.github/.github/workflows/release-pr.yml@v3
+    permissions:
+      contents: read
+    with:
+      version: ${{ inputs.version || needs.version.outputs.version }}
+      # The version lives in the tag alone; no file carries it.
+      bump: "true"
+    secrets:
+      CI_APP_PRIVATE_KEY: ${{ secrets.CI_APP_PRIVATE_KEY }}

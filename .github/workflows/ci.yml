@@ -1,0 +1,64 @@
+name: CI
+
+# A merged `chore: release vX.Y.Z` commit is tagged, its image published and its GitHub Release
+# created in one run: a tag pushed with GITHUB_TOKEN starts no workflow of its own.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: hadolint/hadolint-action@v3.5.0
+        with:
+          dockerfile: Dockerfile
+
+  tag:
+    needs: lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: SvarogLab/.github/.github/workflows/tag-release.yml@v3
+    permissions:
+      contents: write
+
+  # A pull request builds the image without pushing it, so every change to the Dockerfile is built
+  # before it merges. Each platform builds on a runner of its own architecture.
+  image:
+    needs: [lint, tag]
+    if: ${{ !cancelled() && needs.lint.result == 'success' && (github.event_name == 'pull_request' || needs.tag.outputs.tag != '') }}
+    uses: docker/github-builder/.github/workflows/build.yml@v1
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    with:
+      output: image
+      platforms: linux/amd64,linux/arm64
+      push: ${{ needs.tag.outputs.tag != '' }}
+      cache: true
+      set-meta-labels: true
+      # GHCR paths are lowercase; the organisation's name is not.
+      meta-images: ghcr.io/svaroglab/ghproj
+      meta-flavor: latest=false
+      meta-tags: type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+  release:
+    needs: [tag, image]
+    if: needs.tag.outputs.tag != ''
+    uses: SvarogLab/.github/.github/workflows/release.yml@v3
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
