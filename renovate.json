@@ -1,4 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["github>SvarogLab/.github", "customManagers:dockerfileVersions"]
+  "extends": ["github>SvarogLab/.github", "customManagers:dockerfileVersions"],
+  "packageRules": [
+    {
+      "description": "A release carries the ghproj version it ships, so ghproj arrives alone: in the non-major group its bump would merge with the base images' and be released under their changes. It is a feat: the new ghproj is what its release is for.",
+      "matchPackageNames": ["suzuki-shunsuke/ghproj"],
+      "groupName": "ghproj",
+      "groupSlug": "ghproj",
+      "semanticCommitType": "feat"
+    }
+  ]
 }

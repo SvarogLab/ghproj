@@ -131,12 +131,14 @@ Each run logs how many items its search found and exits 0 when it adds them all,
 CI lints the Dockerfile and builds the image on every pull request. The code style, and the checks
 that hold it, are in [docs/CODESTYLE.md](docs/CODESTYLE.md).
 
-A release starts with the **Release PR** workflow, run by hand from the Actions tab. It opens a
-pull request with the next version and the regenerated `CHANGELOG.md`; merging it tags `vX.Y.Z`,
+A release carries the version of the ghproj it ships. It starts with the **Release PR** workflow,
+run by hand from the Actions tab, which takes that version from `GHPROJ_VERSION` in the `Dockerfile`
+and opens a pull request with it and the regenerated `CHANGELOG.md`; merging it tags `vX.Y.Z`,
 publishes the image `X.Y.Z` and creates the GitHub Release, all in that merge's CI run. The tag is
 pushed first: if the image or the release then fails, **Re-run failed jobs** finishes them for the
-same tag, which a second tag of the same version could not. Renovate moves the ghproj version and
-both base images in the `Dockerfile`.
+same tag, which a second tag of the same version could not. Renovate moves the ghproj version in a
+pull request of its own, and the base images and actions together in another. A change without a new
+ghproj ships with the next ghproj release: its version is already tagged, and Release PR refuses it.
 
 ## License
 
