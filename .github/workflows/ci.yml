@@ -43,45 +43,30 @@ jobs:
       contents: write
 
   # A pull request builds the image without pushing it, so every change to the Dockerfile is built
-  # before it merges.
+  # before it merges. Each platform builds on a runner of its own architecture.
   image:
     needs: [test, tag]
     if: ${{ !cancelled() && needs.test.result == 'success' && (github.event_name == 'pull_request' || needs.tag.outputs.tag != '') }}
-    runs-on: ubuntu-26.04
+    uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
+      id-token: write
       packages: write
-    env:
-      RELEASE: ${{ needs.tag.outputs.tag != '' }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
-        if: env.RELEASE == 'true'
-        with:
-          registry: ghcr.io
+    with:
+      output: image
+      platforms: linux/amd64,linux/arm64
+      push: ${{ needs.tag.outputs.tag != '' }}
+      cache: true
+      set-meta-labels: true
+      # GHCR paths are lowercase; the organisation's name is not.
+      meta-images: ghcr.io/svaroglab/ghproj
+      meta-flavor: latest=false
+      meta-tags: type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
+    secrets:
+      registry-auths: |
+        - registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # GHCR paths are lowercase; the organisation's name may not be.
-      - name: Resolve the image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
-      - id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.IMAGE }}
-          flavor: latest=false
-          tags: type=semver,pattern={{version}},value=${{ needs.tag.outputs.tag }}
-      - uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64
-          push: ${{ env.RELEASE == 'true' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   release:
     needs: [tag, image]

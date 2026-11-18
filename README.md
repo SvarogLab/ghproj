@@ -10,7 +10,7 @@ can be given instead.
 
 ## Image
 
-`ghcr.io/svaroglab/ghproj:<version>`, for `linux/amd64`. The build checks
+`ghcr.io/svaroglab/ghproj:<version>`, for `linux/amd64` and `linux/arm64`. The build checks
 the ghproj release's checksums against their Sigstore signature before it unpacks the binary.
 
 The container runs as UID 65532 and writes nothing to disk, so it works with a read-only root
