@@ -24,7 +24,7 @@ jobs:
   tag:
     needs: lint
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    uses: SvarogLab/.github/.github/workflows/tag-release.yml@v3
+    uses: SvarogLab/.github/.github/workflows/tag-release.yml@v3.2
     permissions:
       contents: write
 
@@ -57,7 +57,7 @@ jobs:
   release:
     needs: [tag, image]
     if: needs.tag.outputs.tag != ''
-    uses: SvarogLab/.github/.github/workflows/release.yml@v3
+    uses: SvarogLab/.github/.github/workflows/release.yml@v3.2
     permissions:
       contents: write
     with:

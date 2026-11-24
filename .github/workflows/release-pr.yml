@@ -28,7 +28,7 @@ jobs:
 
   release-pr:
     needs: version
-    uses: SvarogLab/.github/.github/workflows/release-pr.yml@v3
+    uses: SvarogLab/.github/.github/workflows/release-pr.yml@v3.2
     permissions:
       contents: read
     with:
